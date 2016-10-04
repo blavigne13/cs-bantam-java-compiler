@@ -1,0 +1,481 @@
+/*
+Precedence (from highest to lowest)
+10  new  ()
+9   . (dispatch) [] ++ -- (postfix)[left]
+8   - (unary) !     ++ -- (prefix) [right]
+7   (casting)                      [right]
+6   * / %                          [left]
+5   + -                            [left]
+4   < <= > >= instanceof           [left]
+3   == !=                          [left]
+2   &&                             [left]
+1   ||                             [left]
+0   =                              [right]
+*/
+
+Program Program() :
+{
+   Class_ class_;
+   ClassList list;
+}
+{
+   {list = new ClassList(token.beginLine);}
+      (class_=Class() {list.addElement(class_);})+
+      <EOF>
+   {return new Program(0, list);}
+}
+
+Class_ Class() :
+{
+   int ln;
+   String parent, name;
+   Member member;
+   MemberList list;
+}
+{
+   <CLASS> {ln = token.beginLine;}
+      <ID> {name = token.image; parent = "Object";}
+      [<EXTENDS> <ID> {parent = token.image;}]
+      <LEFT_BRACE> {list = new MemberList(ln);}
+      (member=Member() {list.addElement(member);})*
+      <RIGHT_BRACE>
+   {return new Class_(ln, Parser.getCurrFilename(), name, parent, list);}
+}
+
+Member Member() :
+{
+   int ln;
+   String type;
+   Member member;
+}
+{
+   <ID> {type = token.image; ln = token.beginLine;}
+      [<LEFT_BRACKET> <RIGHT_BRACKET> {type += "[]";}]
+      <ID>  (member=Field(ln,type,token.image)
+               |member=Method(ln,type,token.image)
+               )
+   {return member;}
+}
+
+Method Method(int ln, String returnType, String name) :
+{
+   FormalList formalList;
+   StmtList stmtList;
+   ASTNode node;
+}
+{
+   <LEFT_PAREN> {formalList = new FormalList(ln);}
+      [node=Formal() {formalList.addElement(node);}
+         (<COMMA> node=Formal() {formalList.addElement(node);})*
+      ]
+      <RIGHT_PAREN> <LEFT_BRACE> {stmtList = new StmtList(ln);}
+      (node=Stmt() {stmtList.addElement(node);})*
+      <RIGHT_BRACE>
+   {return new Method(ln, returnType, name, formalList, stmtList);}
+}
+
+Field Field(int ln, String type, String name) :
+{
+   Expr init = null;
+}
+{
+   [<ASSIGN> init=Expr()] <SEMICOLON>
+   {return new Field(ln, type, name, init);}
+}
+
+Formal Formal() :
+{
+   int ln;
+   String type;
+}
+{
+   <ID> {type = token.image; ln = token.beginLine;}
+      [<LEFT_BRACKET> <RIGHT_BRACKET> {type += "[]";}]
+      <ID>
+   {return new Formal(ln, type, token.image);}
+}
+
+Stmt Stmt() :
+{
+   Stmt stmt;
+}
+{
+   (LOOKAHEAD(3) stmt=ExprStmt()
+   |stmt=DeclStmt()
+   |stmt=IfStmt()
+   |stmt=WhileStmt()
+   |stmt=ForStmt()
+   |stmt=BreakStmt()
+   |stmt=ReturnStmt()
+   |stmt=BlockStmt()
+   )
+   {return stmt;}
+}
+
+ExprStmt ExprStmt() :
+{
+   Expr expr = null;
+}
+{ //not sure if bantam allows orphan semicolons, but java does, so we do too
+   expr=Expr() <SEMICOLON>
+      {if(expr == null) expr = new ConstStringExpr(token.beginLine, "");}
+   {return new ExprStmt(expr.getLineNum(), expr);}
+}
+
+IfStmt IfStmt() :
+{
+   int ln;
+   Expr predExpr;
+   Stmt thenStmt, elseStmt;
+}
+{
+   <IF> {ln = token.beginLine;}
+   <LEFT_PAREN> predExpr=Expr() <RIGHT_PAREN> thenStmt=Stmt()
+      (<ELSE> elseStmt=Stmt()
+      |{elseStmt = new BlockStmt(ln, new StmtList(ln));}
+      )
+   {return new IfStmt(ln, predExpr, thenStmt, elseStmt);}
+}
+
+
+WhileStmt WhileStmt() :
+{
+   int ln;
+   Expr predExpr;
+   Stmt bodyStmt;
+}
+{
+   <WHILE> {ln = token.beginLine;}
+      <LEFT_PAREN> predExpr=Expr() <RIGHT_PAREN> bodyStmt=Stmt()
+   {return new WhileStmt(ln, predExpr, bodyStmt);}
+}
+
+ForStmt ForStmt() :
+{
+   int ln;
+   Expr initExpr = null, predExpr = null, updateExpr = null;
+   Stmt bodyStmt;
+}
+{
+   <FOR> {ln = token.beginLine;} <LEFT_PAREN>
+      [initExpr=Expr()] <SEMICOLON>
+      [predExpr=Expr()] <SEMICOLON>
+      [updateExpr=Expr()] <RIGHT_PAREN>
+      bodyStmt=Stmt()
+   {return new ForStmt(ln, initExpr, predExpr, updateExpr, bodyStmt);}
+}
+
+BreakStmt BreakStmt() :
+{
+   int ln;
+}
+{
+   <BREAK> {ln = token.beginLine;} <SEMICOLON>
+   {return new BreakStmt(ln);}
+}
+
+ReturnStmt ReturnStmt() :
+{
+   int ln;
+   Expr expr = null;
+}
+{
+   <RETURN> {ln = token.beginLine;} [expr=Expr()] <SEMICOLON>
+   {return new ReturnStmt(ln, expr);}
+}
+
+BlockStmt BlockStmt() :
+{
+   int ln;
+   StmtList stmtList;
+   Stmt stmt;
+}
+{
+   <LEFT_BRACE> {ln = token.beginLine; stmtList = new StmtList(ln);}
+      (stmt=Stmt() {stmtList.addElement(stmt);})*
+      <RIGHT_BRACE>
+   {return new BlockStmt(ln, stmtList);}
+}
+
+DeclStmt DeclStmt() :
+{
+   int ln;
+   String type, name;
+   Expr expr;
+}
+{
+   <ID> {ln = token.beginLine; type = token.image;}
+      [<LEFT_BRACKET> <RIGHT_BRACKET> {type += "[]";}]
+      <ID> {name = token.image;} <ASSIGN> expr=Expr() <SEMICOLON>
+   {return new DeclStmt(ln, type, name, expr);}
+}
+
+Expr Expr() :
+{
+   int ln;
+   Expr leftExpr, rightExpr;
+}
+{
+   leftExpr=BinaryCompareExpr2()
+      (<OR> {ln = token.beginLine;} rightExpr=BinaryCompareExpr2()
+      {leftExpr = new BinaryLogicOrExpr(ln, leftExpr, rightExpr);}
+      )*
+   {return leftExpr;}
+}
+
+Expr BinaryCompareExpr2() :
+{
+   int ln;
+   Expr leftExpr, rightExpr;
+}
+{
+   leftExpr=BinaryCompareExpr3()
+      (<AND> {ln = token.beginLine;} rightExpr=BinaryCompareExpr3()
+      {leftExpr = new BinaryLogicAndExpr(ln, leftExpr, rightExpr);}
+      )*
+   {return leftExpr;}
+}
+
+Expr BinaryCompareExpr3() :
+{
+   Token t;
+   int ln;
+   Expr leftExpr, rightExpr;
+}
+{
+   leftExpr=BinaryCompareExpr4()
+   ((t=<IS_EQUAL>|t=<NOT_EQUAL>) {ln = t.beginLine;}
+      rightExpr=BinaryCompareExpr4()
+      {
+         if(t.kind == IS_EQUAL)
+            leftExpr = new BinaryCompEqExpr(ln, leftExpr, rightExpr);
+         else
+            leftExpr = new BinaryCompNeExpr(ln, leftExpr, rightExpr);
+      }
+   )*
+   {return leftExpr;}
+}
+
+Expr BinaryCompareExpr4() :
+{
+   Token t;
+   int ln;
+   Expr leftExpr, rightExpr;
+}
+{
+   leftExpr=BinaryArithExpr5()
+      ((t=<LESS>|t=<LESS_EQUAL>|t=<GTR>|t=<GTR_EQUAL>) {ln = t.beginLine;}
+         rightExpr=BinaryArithExpr5()
+         {
+            if(t.kind == LESS)
+               leftExpr = new BinaryCompLtExpr(ln, leftExpr, rightExpr);
+            else if(t.kind == LESS_EQUAL)
+               leftExpr = new BinaryCompLeqExpr(ln, leftExpr, rightExpr);
+            else if(t.kind == GTR)
+               leftExpr = new BinaryCompGtExpr(ln, leftExpr, rightExpr);
+            else if(t.kind == GTR_EQUAL)
+               leftExpr = new BinaryCompGeqExpr(ln, leftExpr, rightExpr);
+         }
+      )*
+      [<INSTANCEOF> t=<ID> {ln = t.beginLine;}
+         [<LEFT_BRACKET> <RIGHT_BRACKET> {t.image += "[]";}]
+         {leftExpr = new InstanceofExpr(ln, leftExpr, t.image);}
+      ]
+   {return leftExpr;}
+}
+
+Expr BinaryArithExpr5() :
+{
+   Token t;
+   int ln;
+   Expr leftExpr, rightExpr;
+}
+{
+   leftExpr=BinaryArithExpr6()
+      ((t=<ADD>|t=<SUB>) {ln = t.beginLine;}
+         rightExpr=BinaryArithExpr6()
+         { 
+            if(t.kind == ADD)
+               leftExpr = new BinaryArithPlusExpr(ln, leftExpr, rightExpr);
+            else if(t.kind == SUB)
+               leftExpr = new BinaryArithMinusExpr(ln, leftExpr, rightExpr);
+         }
+      )*
+   {return leftExpr;}
+}
+
+Expr BinaryArithExpr6() :
+{
+   Token t;
+   int ln;
+   Expr leftExpr, rightExpr;
+}
+{
+   leftExpr=CastExpr7()
+      ((t=<MUL> |t=<DIV> |t=<MOD>) {ln = t.beginLine;}
+         rightExpr=CastExpr7()
+         {
+            if(t.kind == MUL)
+               leftExpr = new BinaryArithTimesExpr(ln, leftExpr, rightExpr);
+            else if(t.kind == DIV)
+               leftExpr = new BinaryArithDivideExpr(ln, leftExpr, rightExpr);
+            else if(t.kind == MOD)
+               leftExpr = new BinaryArithModulusExpr(ln, leftExpr, rightExpr);
+         }
+      )*
+   {return leftExpr;}
+}
+
+Expr CastExpr7() :
+{
+   Token t;
+   Expr expr;
+}
+{
+   (LOOKAHEAD(4) <LEFT_PAREN> t=<ID>
+      [<LEFT_BRACKET> <RIGHT_BRACKET> {t.image += "[]";}] <RIGHT_PAREN> 
+      <LEFT_PAREN> expr=Expr() <RIGHT_PAREN>
+      {expr = new CastExpr(t.beginLine, t.image, expr);}
+   |expr=PrefixExpr8()
+   )
+   {return expr;}
+}
+
+Expr PrefixExpr8() :
+{
+   Token t = null;
+   int ln = 0;
+   Expr expr;
+}
+{
+   [(t=<SUB>|t=<NOT>|t=<INC>|t=<DEC>) {ln = t.beginLine;}]
+      expr=PostfixExpr9()
+      {
+         if(t == null) ; //do noting
+         else if(t.kind == SUB) expr = new UnaryNegExpr(ln, expr);
+         else if(t.kind == NOT) expr = new UnaryNotExpr(ln, expr);
+         else if(t.kind == INC) expr = new UnaryIncrExpr(ln, expr, false);
+         else if(t.kind == DEC) expr = new UnaryDecrExpr(ln, expr, false);
+      }
+   {return expr;}
+}
+
+Expr PostfixExpr9() :
+{
+   Token t;
+   int ln;
+   Expr expr;
+}
+{
+   (LOOKAHEAD(2) expr=DispatchExpr9(null)
+   |expr=IHopeItsOneOfTheseExpr10()
+         [
+            (t=<INC>
+            |t=<DEC>
+            | (t=<DOT>
+                  (LOOKAHEAD(2) expr=DispatchExpr9(expr)|expr=VarExpr(expr))
+               )+
+            )
+            {
+               ln = t.beginLine;
+               if(t.kind == INC)
+                  expr = new UnaryIncrExpr(ln, expr, true);
+               else if(t.kind == DEC)
+                  expr = new UnaryDecrExpr(ln, expr, true);
+            }
+         ]
+   )
+   {return expr;}
+}
+
+Expr DispatchExpr9(Expr ref) :
+{
+   int ln;
+   String name;
+   Expr expr;
+   ExprList list;
+}
+{
+   <ID>
+   {
+      ln = token.beginLine;
+      name = token.image;
+      list = new ExprList(ln);
+      ref = (ref == null)? new VarExpr(ln, null, "this") : ref;
+   }
+      <LEFT_PAREN>
+      [expr=Expr() {list.addElement(expr);}
+         (<COMMA> expr=Expr() {list.addElement(expr);})*
+      ]
+      <RIGHT_PAREN>
+   {return new DispatchExpr(ln, ref, name, list);}
+}
+
+Expr IHopeItsOneOfTheseExpr10() :
+{
+   Token t;
+   int ln;
+   String type;
+   Expr expr, size;
+}
+{
+   (<NEW> t=<ID> {ln = t.beginLine; type = t.image;}
+      (<LEFT_PAREN> <RIGHT_PAREN>
+         {expr = new NewExpr(ln, type);}
+      |<LEFT_BRACKET> size=Expr() <RIGHT_BRACKET>
+         {expr = new NewArrayExpr(ln, type, size);}
+      )
+   |<LEFT_PAREN> expr=Expr() <RIGHT_PAREN>
+   |expr=VarExpr(null)
+   )
+   {return expr;}
+}
+
+Expr VarExpr(Expr ref) :
+{
+   Token t;
+   int ln;
+   String name, str = "";
+   Expr ass = null, expr = null, index = null;
+}
+{
+   (t=<ID> {ln = t.beginLine; name = t.image;}
+      [<LEFT_BRACKET> index=Expr() <RIGHT_BRACKET>
+         {expr = new ArrayExpr(ln, ref, name, index);}
+      ]
+      {if(expr == null) expr = new VarExpr(ln, ref, name);}
+      [<ASSIGN> ass=Expr()
+         {
+            str = (ref == null)? null : ((VarExpr) ref).getName();
+            if(index != null)
+               expr = new ArrayAssignExpr(ln, str, name, index, ass);
+            else
+               expr = new AssignExpr(ln, str, name, ass);
+         }
+      ]
+   |t=<INT_CONST>
+      {ln = t.beginLine; expr = new ConstIntExpr(ln, t.image);}
+   |t=<BOOLEAN_CONST>
+      {ln = t.beginLine; expr = new ConstBooleanExpr(ln, t.image);}
+   |t=<STRING_CONST> 
+      {
+         ln = t.beginLine;
+         t.image = t.image.substring(1, t.image.length()-1);
+         for(int i = 0; i < t.image.length(); i++) {
+            if(t.image.charAt(i) == 92){
+               i++;
+               switch(t.image.charAt(i)) {
+                  case 'n': str += "\n"; break; //newline
+                  case 't': str += 9; break; //tab
+                  case 'f': str += 12; break; //form feed
+                  case 92: str += 92; break; //backslash
+                  case '"': str += '"'; break; //double quote
+                  default: //illegal escape sequence
+               }
+            } else str += t.image.charAt(i); //normal char (non-esc)
+         }
+         expr = new ConstStringExpr(ln, str);
+      }
+   )
+   {return expr;}
+}

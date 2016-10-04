@@ -1,0 +1,89 @@
+TOKEN: /* KEYWORDS and SPECIAL SYMBOLS */
+{
+   <SEMICOLON: ";">
+   |<LEFT_PAREN: "(">
+   |<RIGHT_PAREN: ")">
+   |<LEFT_BRACE: "{">
+   |<RIGHT_BRACE: "}">
+   |<LEFT_BRACKET: "[">
+   |<RIGHT_BRACKET: "]">
+   |<DOT: ".">
+   |<COMMA: ",">
+   |<BACKSLASH: "\\">
+   |<ADD: "+">
+   |<SUB: "-">
+   |<DIV: "/">
+   |<MOD: "%">
+   |<MUL: "*">
+   |<INC: "++">
+   |<DEC: "--">
+   |<GTR: ">">
+   |<LESS: "<">
+   |<GTR_EQUAL: ">=">
+   |<LESS_EQUAL: "<=">
+   |<IS_EQUAL: "==">
+   |<NOT_EQUAL: "!=">
+   |<AND: "&&">
+   |<OR: "||">
+   |<NOT: "!">
+   |<ASSIGN: "=">
+   |<CLASS: "class">
+   |<EXTENDS: "extends">
+   |<NEW: "new">
+   |<WHILE: "while">
+   |<FOR: "for">
+   |<IF: "if">
+   |<ELSE: "else">
+   |<RETURN: "return">
+   |<INSTANCEOF: "instanceof">
+   |<BREAK: "break">
+}
+
+TOKEN: /* CONSTANTS */
+{
+   <INT_CONST: (["0"-"9"])+>
+   |<BOOLEAN_CONST: "true"|"false">
+   |<STRING_CONST: "\""("\\\""|~["\"","\n"])*"\""> {
+      if((image.length()-2)>Parser.MAX_STRING_SIZE) {
+         errorHandler.register(errorHandler.LEX_ERROR,
+            Parser.getCurrFilename(), JavaCharStream.getBeginLine(),
+            "String constant is too long: "+image);
+      }
+   }
+}
+TOKEN: /* IDs */
+{
+   <ID: ((["a"-"z"]|["A"-"Z"])(["a"-"z"]|["A"-"Z"]|["0"-"9"]|"_")*)>
+}
+
+SKIP: /* Skip rules */
+{
+   <(" ")+>
+   |<"//"(~["\n"])*"\n">
+   |<"/*"(~["*"]|(["*"]~["/"]))*"*/">
+   |<"/*"(~["*"]|(["*"]~["/"]))*>{
+      errorHandler.register(errorHandler.LEX_ERROR,
+         Parser.getCurrFilename(), JavaCharStream.getBeginLine(),
+         "Unterminated multi-line comment: "+image);
+   }
+   |<"\""("\\\""|~["\""])*"\"">{
+      errorHandler.register(errorHandler.LEX_ERROR,
+         Parser.getCurrFilename(), JavaCharStream.getBeginLine(),
+         "String constant spanning multiple lines: "+image);
+   }
+   |<"\""("\\\""|~["\""])*>{
+      errorHandler.register(errorHandler.LEX_ERROR,
+         Parser.getCurrFilename(), JavaCharStream.getBeginLine(),
+         "Unterminated string constant: "+image);
+   }
+   |<("\n")+>
+   |<("\t")+>
+   |<("\f")+>
+   |<("\r")+>
+}
+
+<*>
+TOKEN : /* EOF */
+{
+   <EOF> {errorHandler.checkErrors();}
+}
